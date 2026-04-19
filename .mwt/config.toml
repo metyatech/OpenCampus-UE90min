@@ -1,0 +1,22 @@
+version = 1
+default_branch = "main"
+default_remote = "origin"
+task_worktree_dir_template = "{{ seed_parent }}/{{ repo }}-wt-{{ slug }}-{{ shortid }}"
+task_branch_template = "wt/{{ slug }}/{{ shortid }}"
+
+[bootstrap]
+enabled = true
+default_profile = "local"
+
+[bootstrap.profiles.local]
+include = [ ".env", ".env.local", ".env.*.local" ]
+exclude = [ "node_modules/", ".venv/", ".next/", "dist/" ]
+
+[verify]
+command = '''
+pwsh -NoProfile -Command "$ErrorActionPreference = 'Stop'; Get-Content -LiteralPath '.github/workflows/package-and-release.yml' -Raw | npx --yes yaml@2.8.1 valid; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'scripts/split-archive.ps1'), [ref]$null, [ref]$errors) > $null; if ($errors.Count -gt 0) { $errors | ForEach-Object { $_.Message }; exit 1 }; Import-Module Pester; Invoke-Pester -Path 'scripts/split-archive.tests.ps1' -EnableExit"
+'''
+
+[policy]
+allow_ignored_seed_changes = true
+allow_tracked_seed_changes = false
