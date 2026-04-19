@@ -3,3 +3,4 @@
 {"id":"QyyftvRl","description":"Commit UE auto-resolution workflow and trigger a new release run for OpenCampus-UE90min","stage":"committed","createdAt":"2026-04-19T02:42:48.227Z","updatedAt":"2026-04-19T02:44:50.905Z","committedEventId":"yBSLYzbQvWE2ica3"}
 {"id":"lmEsf0jl","description":"Fix BuildCookRun packaging failure after rerun for OpenCampus-UE90min","stage":"committed","createdAt":"2026-04-19T07:15:28.457Z","updatedAt":"2026-04-19T07:18:10.362Z","committedEventId":"zO_UsuIJzkKighMT"}
 {"id":"S43SBfYb","description":"Fix Unreal packaging workflow to build target receipts before cook","stage":"committed","createdAt":"2026-04-19T07:54:07.506Z","updatedAt":"2026-04-19T08:13:15.467Z","committedEventId":"z3OuGyE0g4IQafPz"}
+{"id":"QiVTYtXW","description":"Disable Unreal hot reload checks for CI packaging","stage":"committed","createdAt":"2026-04-19T08:22:07.969Z","updatedAt":"2026-04-19T08:22:39.125Z","committedEventId":"jqIfu35-x18OzR06"}
