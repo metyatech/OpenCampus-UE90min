@@ -1,0 +1,156 @@
+name: Package and release Windows Development build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    runs-on:
+      - self-hosted
+      - windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Unreal Engine and archiver prerequisites
+        shell: pwsh
+        run: |
+          Write-Host 'Targeting the same self-hosted Windows runner label set used by Verseday/XroidVerse.'
+
+          if ([string]::IsNullOrWhiteSpace($env:UE_ROOT)) {
+            throw 'UE_ROOT environment variable is not set.'
+          }
+
+          $runUatPath = Join-Path $env:UE_ROOT 'Engine\Build\BatchFiles\RunUAT.bat'
+          if (-not (Test-Path -LiteralPath $runUatPath)) {
+            throw "RunUAT.bat was not found at $runUatPath"
+          }
+
+          $sevenZip = Get-Command 7z -ErrorAction SilentlyContinue
+          if ($null -eq $sevenZip) {
+            throw '7z was not found on PATH. Install 7-Zip on the self-hosted runner.'
+          }
+
+      - name: Reset packaging output directories
+        shell: pwsh
+        run: |
+          $paths = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'PackagedOutput'),
+            (Join-Path $env:GITHUB_WORKSPACE 'release-assets')
+          )
+
+          foreach ($path in $paths) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Recurse -Force
+            }
+          }
+
+      - name: Package Unreal project
+        shell: pwsh
+        run: |
+          $runUatPath = Join-Path $env:UE_ROOT 'Engine\Build\BatchFiles\RunUAT.bat'
+          $projectPath = Join-Path $env:GITHUB_WORKSPACE 'UE90min.uproject'
+          $archiveDirectory = Join-Path $env:GITHUB_WORKSPACE 'PackagedOutput'
+
+          & $runUatPath BuildCookRun `
+            -project="$projectPath" `
+            -platform=Win64 `
+            -clientconfig=Development `
+            -cook `
+            -stage `
+            -pak `
+            -package `
+            -archive `
+            -archivedirectory="$archiveDirectory" `
+            -noP4 `
+            -utf8output
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "RunUAT.bat failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Locate packaged game directory
+        id: package-directory
+        shell: pwsh
+        run: |
+          $archiveDirectory = Join-Path $env:GITHUB_WORKSPACE 'PackagedOutput'
+          $candidates = Get-ChildItem -LiteralPath $archiveDirectory -Directory -Recurse |
+            Where-Object {
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'UE90min.exe') -PathType Leaf) -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'Engine') -PathType Container)
+            } |
+            Sort-Object FullName.Length, FullName
+
+          if ($candidates.Count -eq 0) {
+            throw "Could not find a packaged game root under $archiveDirectory"
+          }
+
+          $packageDirectory = $candidates[0].FullName
+          "path=$packageDirectory" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+
+      - name: Determine archive label
+        id: archive-label
+        shell: pwsh
+        run: |
+          $label = if ('${{ github.ref_type }}' -eq 'tag') {
+            '${{ github.ref_name }}'
+          }
+          else {
+            "manual-${{ github.run_number }}"
+          }
+
+          "value=$label" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+
+      - name: Create release archive assets
+        id: archive
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\scripts\split-archive.ps1" `
+            -InputPath '${{ steps.package-directory.outputs.path }}' `
+            -OutputDirectory "$env:GITHUB_WORKSPACE\release-assets" `
+            -BaseName 'UE90min-Win64-Development-${{ steps.archive-label.outputs.value }}'
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "split-archive.ps1 failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Validate release archive assets
+        shell: pwsh
+        env:
+          ARCHIVE_ASSETS: ${{ steps.archive.outputs.assets }}
+        run: |
+          $assets = $env:ARCHIVE_ASSETS -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+          if ($assets.Count -eq 0) {
+            throw 'No archive assets were produced.'
+          }
+
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Archive asset not found: $asset"
+            }
+          }
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: UE90min ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          files: ${{ steps.archive.outputs.assets }}
+          body: |
+            ## Download and play
+
+            1. Download all release assets from the list below.
+            2. If the archive is split, open the `.001` file with [7-Zip](https://www.7-zip.org/) after every part finishes downloading.
+            3. Extract the archive and run `UE90min.exe`.
+
+            This release contains the Windows Development package built from `${{ github.ref_name }}`.
