@@ -24,14 +24,66 @@ jobs:
         run: |
           Write-Host 'Targeting the same self-hosted Windows runner label set used by Verseday/XroidVerse.'
 
-          if ([string]::IsNullOrWhiteSpace($env:UE_ROOT)) {
-            throw 'UE_ROOT environment variable is not set.'
+          $projectPath = Join-Path $env:GITHUB_WORKSPACE 'UE90min.uproject'
+          $project = Get-Content -LiteralPath $projectPath -Raw | ConvertFrom-Json
+          $engineAssociation = [string]$project.EngineAssociation
+
+          if ([string]::IsNullOrWhiteSpace($engineAssociation)) {
+            throw "EngineAssociation is missing from $projectPath"
           }
 
-          $runUatPath = Join-Path $env:UE_ROOT 'Engine\Build\BatchFiles\RunUAT.bat'
-          if (-not (Test-Path -LiteralPath $runUatPath)) {
-            throw "RunUAT.bat was not found at $runUatPath"
+          $candidateRoots = New-Object System.Collections.Generic.List[string]
+
+          try {
+            $buildsKey = 'HKCU:\Software\Epic Games\Unreal Engine\Builds'
+            if (Test-Path -LiteralPath $buildsKey) {
+              $buildEntries = Get-ItemProperty -LiteralPath $buildsKey
+              foreach ($property in $buildEntries.PSObject.Properties) {
+                if ($property.Name -in @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')) {
+                  continue
+                }
+
+                if ($property.Name -eq $engineAssociation -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+                  $candidateRoots.Add([string]$property.Value)
+                }
+              }
+            }
           }
+          catch {
+            Write-Warning "Failed to inspect Unreal Builds registry: $($_.Exception.Message)"
+          }
+
+          if ($engineAssociation -match '^[0-9]+(\.[0-9]+)+$') {
+            $candidateRoots.Add((Join-Path 'C:\Program Files\Epic Games' ("UE_$engineAssociation")))
+          }
+
+          $projectDirectory = Split-Path -Parent $projectPath
+          $searchDirectory = $projectDirectory
+          while (-not [string]::IsNullOrWhiteSpace($searchDirectory)) {
+            $candidateRoots.Add($searchDirectory)
+            $parentDirectory = Split-Path -Parent $searchDirectory
+            if ($parentDirectory -eq $searchDirectory) {
+              break
+            }
+
+            $searchDirectory = $parentDirectory
+          }
+
+          $resolvedEngineRoot = $null
+          foreach ($candidateRoot in $candidateRoots | Select-Object -Unique) {
+            $runUatPath = Join-Path $candidateRoot 'Engine\Build\BatchFiles\RunUAT.bat'
+            if (Test-Path -LiteralPath $runUatPath) {
+              $resolvedEngineRoot = $candidateRoot
+              break
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($resolvedEngineRoot)) {
+            throw "Could not resolve an Unreal Engine installation for EngineAssociation '$engineAssociation'. Checked registry, default Epic Games install path, and parent directories from $projectPath."
+          }
+
+          "UE_ROOT=$resolvedEngineRoot" | Add-Content -LiteralPath $env:GITHUB_ENV
+          Write-Host "Resolved UE_ROOT to $resolvedEngineRoot"
 
           $sevenZip = Get-Command 7z -ErrorAction SilentlyContinue
           if ($null -eq $sevenZip) {
