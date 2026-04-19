@@ -16,5 +16,5 @@ The workflow runs on a self-hosted Windows runner with these prerequisites:
 
 - The same home-PC self-hosted Windows runner label set used by Verseday/XroidVerse (`[self-hosted, windows]`)
 - Unreal Engine 5.7 installed
-- `UE_ROOT` environment variable pointing to the engine root
+- Unreal Engine discoverable either via the current user's `HKCU\Software\Epic Games\Unreal Engine\Builds` registry entries or the default Epic Games install path such as `C:\Program Files\Epic Games\UE_5.7`
 - `7z` available on `PATH`
